@@ -1,0 +1,427 @@
+ISP:
+nmtui
+yum install iptables-services
+iptables -A INPUT -j ACCEPT
+iptables -A OUTPUT -j ACCEPT
+iptables -A FORWARD -j ACCEPT
+iptables -t nat -A POSTROUTING -o enp3s0 -j MASQUERADE
+service iptables save
+systemctl stop firewalld
+systemctl disable firewalld
+systemctl start iptables
+systemctl enable iptables
+
+
+
+L-DC:
+
+nmtui
+yum install iptables-services
+iptables -A INPUT -j ACCEPT
+iptables -A OUTPUT -j ACCEPT
+iptables -A FORWARD -j ACCEPT
+iptables -t nat -A POSTROUTING -o enp3s0 -j MASQUERADE
+service iptables save
+systemctl stop firewalld
+systemctl disable firewalld
+systemctl start iptables
+systemctl enable iptables
+yum install @idm:DL1
+yum install freeipa-server ipa-server-dns
+setenforce 0
+ipa-server-install
+
+yum -y install yum-utils
+sudo yum-config-manager \
+    --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+mkdir /compose
+cd /compose
+nano docker-compose.yml
+version '3.8'
+  services:
+    node-exporter:
+    image: prom/node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    container_name: exporter
+    hostname: exporter
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.ignored-mount-points
+      - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+    ports:
+      - 9100:9100
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Irkutsk"
+
+yum install epel-release elrepo-release
+yum install kmod-wireguard wireguard-tools
+nano /etc/wireguard/wg0.conf
+
+[Interface]
+
+PrivateKey = kN8+3grhhgqrrtEZOA/kgmeKuwdOibstjLVZO/YdCUc=
+
+Address = 10.0.0.2/24
+
+[Peer]
+
+PublicKey = BCY2onPD5pu0plAlJ+DbrRNDi968C/yKIPOf2BxUs0M=
+
+Endpoint = 2.2.2.2:51820
+
+AllowedIPs = 10.0.0.1/32,172.16.150.0/24
+
+
+
+
+
+C-DC:
+nmtui
+yum install iptables-services
+iptables -A INPUT -j ACCEPT
+iptables -A OUTPUT -j ACCEPT
+iptables -A FORWARD -j ACCEPT
+iptables -t nat -A POSTROUTING -o enp3s0 -j MASQUERADE
+service iptables save
+systemctl stop firewalld
+systemctl disable firewalld
+systemctl start iptables
+systemctl enable iptables
+yum install @idm:DL1
+yum install freeipa-server ipa-server-dns
+setenforce 0
+
+yum -y install yum-utils
+sudo yum-config-manager \
+    --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+sudo yum install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+nano /etc/yum.repos.d/powertools
+
+yum install epel-release elrepo-release
+yum install kmod-wireguard wireguard-dkms wireguard-tools
+nano /etc/wireguard/wg0.conf
+[Interface]
+
+PrivateKey = QJHU+lGO62/fEUFXnIXlodfRI8BR/sLPM9VLHo5PR2g=
+
+Address = 10.0.0.1/24
+
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+ListenPort = 51820
+
+[Peer]
+
+PublicKey = VqCigyJsG/cofekF1dVLXFuY+1nPy6FID95JJYy8Fz4=
+
+AllowedIPs = 10.0.0.2/32,192.168.150.0/24
+
+ipa-client-install --domain=companyname.com --realm=COMPANYNAME.COM --server=l-dc.companyname.com --hostname=c-dc.companyname.com
+ipa-replica install
+ipa-ca-install
+ipa-dns-install
+
+
+mkdir /compose
+cd /compose
+nano docker-compose.yml
+version '3.8'
+  services:
+    node-exporter:
+    image: prom/node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    container_name: exporter
+    hostname: exporter
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.ignored-mount-points
+      - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+    ports:
+      - 9100:9100
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Irkutsk"
+
+    wg-portal:
+      image: h44z/wg-portal:latest
+      container_name: wg-portal
+      restart: unless-stopped
+      cap_add:
+        - NET_ADMIN
+      network_mode: "host"
+      volumes:
+        - /etc/wireguard:/etc/wireguard
+        - ./data:/app/data
+      ports:
+        - '8123:8123'
+      environment:
+        # WireGuard Settings
+        - WG_DEVICES=wg0
+        - WG_DEFAULT_DEVICE=wg0
+        - WG_CONFIG_PATH=/etc/wireguard
+        # Core Settings
+        - EXTERNAL_URL=http://c-dc.companyname.com
+        - WEBSITE_TITLE=WireGuard VPN
+        - COMPANY_NAME=COMPANYNAME
+        - ADMIN_USER=admin@domain.com
+        - ADMIN_PASS=admin
+        # Mail Settings
+#        - MAIL_FROM=WireGuard VPN <noreply+wireguard@company.com>
+#        - EMAIL_HOST=10.10.10.10
+#        - EMAIL_PORT=25
+        # LDAP Settings
+        - LDAP_ENABLED=true
+        - LDAP_URL=ldap://c-dc.companyname.com:389
+        - LDAP_BASEDN=DC=COMPANYNAME,DC=COM
+        - LDAP_USER=admin@companyname.com
+        - LDAP_PASSWORD=P@ssw0rd
+
+        - LDAP_ADMIN_GROUP=cn=accounts,dc=companyname,dc=com
+        - LDAP_ATTR_EMAIL=uid
+        - LDAP_ATTR_FIRSTNAME=displayName
+        - LDAP_ATTR_LASTNAME=uid
+
+
+
+
+C-SRV:
+nmtui
+apt update
+apt install ca-certificates curl gnupg lsb-release\
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+docker pull nextcloud
+docker pull mysql
+docker pull gitlab/gitlab-ce
+mkdir /compose
+touch /compose/docker-compose.yml
+cd /compose
+nano docker-compose.yml
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: P@ssw0rd
+
+  nextcloud:
+    image: nextcloud
+    restart: always
+    ports:
+      - 8080:80
+    links:
+      - mysql
+    volumes:
+      - /nfs/nextcloud:/var/www/html
+    environment:
+      MYSQL_ROOT_PASSWORD: P@ssw0rd
+
+  gitlab:
+   image: 'gitlab/gitlab-ce:latest'
+   restart: always
+   hostname: 'c-srv.companyname.com'
+   environment:
+     GITLAB_OMNIBUS_CONFIG: |
+       external_url 'https://c-srv.companyname.com'
+       # Add any other gitlab.rb configuration here, each on its own line
+   ports:
+     - '80:80'
+     - '443:443'
+     - '22:22'
+   volumes:
+     - '/opt/gitlab/config:/etc/gitlab'
+     - '/opt/gitlab/logs:/var/log/gitlab'
+     - '/opt/gitlab/data:/var/opt/gitlab'
+  node-exporter:
+    image: prom/node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    container_name: exporter
+    hostname: exporter
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.ignored-mount-points
+      - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+    ports:
+      - 9100:9100
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Irkutsk"
+
+mkdir /nfs
+mkdir /nfs/nextcloud
+nano /etc/fstab
+172.16.150.129:/mnt/nfs	/nfs/nextcloud	nfs	defaults	0	0
+
+docker compose up -d
+
+
+
+C-FS:
+nmtui
+apt update
+apt install ca-certificates curl gnupg lsb-release\
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+docker pull prom/prometheus
+docker pull grafana/grafana
+apt install nfs-kernel-server
+mkdir -p /compose
+touch /compose/docker-compose.yml
+cd /compose
+nano docker-compose.yml
+version: '3.9'
+
+services:
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus:/etc/prometheus/
+    container_name: prometheus
+    hostname: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    environment:
+      TZ: "Europe/Moscow"
+#    networks:
+#      - default
+
+  node-exporter:
+    image: prom/node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    container_name: exporter
+    hostname: exporter
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.ignored-mount-points
+      - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+    ports:
+      - 9100:9100
+    restart: unless-stopped
+    environment:
+      TZ: "Europe/Moscow"
+#    networks:
+#      - default
+
+#networks:
+#  default:
+#    ipam:
+#      driver: default
+#      config:
+#        - subnet: 172.28.0.0/16
+  grafana:
+    image: grafana/grafana
+    user: root
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+    container_name: grafana
+    hostname: grafana
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Irkutsk"
+#      GF_AUTH_LDAP_ENABLED: true
+#    networks:
+#      - default
+
+
+
+ldap.toml >>
+
+[[servers]]
+host = "c-dc.companyname.com"
+port = 389
+use_ssl = false
+start_tls = false
+ssl_skip_verify = false
+#bind_dn = "COMPANY\\%s"
+bind_dn = "uid=admin,cn=users,cn=accounts,dc=companyname,dc=com"
+bind_password = "P@ssw0rd"
+search_filter = "(uid=%s)"
+#search_filter = "(sAMAccountName=%s)"
+search_base_dns = ["dc=companyname,dc=com"]
+
+echo "/mnt/nfs  172.16.150.129(rw,sync,no_root_squash,no_subtree_check)" >> /etc/exports
+
+
+
+
+
+
+
+
+
+
+TEST:
+nmtui
+---docker---
+docker pull gitlab/gitlab-runner
+
+
+PROD:
+nmtui
+---docker---
+docker pull gitlab/gitlab-runner
+
+
+
+
+
+
+
+
+
+
+private server    QJHU+lGO62/fEUFXnIXlodfRI8BR/sLPM9VLHo5PR2g=
+public server     BCY2onPD5pu0plAlJ+DbrRNDi968C/yKIPOf2BxUs0M=
+
+private client kN8+3grhhgqrrtEZOA/kgmeKuwdOibstjLVZO/YdCUc=
+public client VqCigyJsG/cofekF1dVLXFuY+1nPy6FID95JJYy8Fz4=
+
+
+
+
+
